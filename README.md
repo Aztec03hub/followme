@@ -1,9 +1,9 @@
-# followme-opensource
+# followme
 
-A tiny, public version of `followme`: a set of standalone CLI scripts that
-discover GitHub repositories, grade them with a local **Ollama** model, then
-follow promising authors and star strong projects. State lives in a single
-SQLite file. No database server, no Telegram, no extra docs.
+A small set of standalone CLI scripts that discover GitHub repositories,
+grade them with a local **Ollama** model, then follow promising authors
+and star strong projects. State lives in a single SQLite file. No
+database server, no extra services.
 
 ## Pipeline
 
