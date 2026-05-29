@@ -16,7 +16,7 @@ GITHUB_API = "https://api.github.com"
 logger = logging.getLogger(__name__)
 
 
-def _headers(token: str) -> dict[str, str]:
+def auth_headers(token: str) -> dict[str, str]:
     return {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
@@ -41,7 +41,7 @@ def request(
     url = f"{GITHUB_API}{path}"
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url=url, method=method, headers=_headers(settings["github_token"]))
+    req = urllib.request.Request(url=url, method=method, headers=auth_headers(settings["github_token"]))
     try:
         with urllib.request.urlopen(req, timeout=settings["request_timeout_seconds"]) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
@@ -95,7 +95,7 @@ def search_recent_repositories(settings: dict[str, Any], wanted: int, skip: set[
 
 
 def is_starred(settings: dict[str, Any], repo: str) -> bool:
-    code, _ = request("GET", f"/user/starred/{repo}", settings)
+    code, body = request("GET", f"/user/starred/{repo}", settings)
     return code == 204
 
 
@@ -110,7 +110,7 @@ def star(settings: dict[str, Any], repo: str) -> bool:
 
 
 def is_following(settings: dict[str, Any], login: str) -> bool:
-    code, _ = request("GET", f"/user/following/{login}", settings)
+    code, body = request("GET", f"/user/following/{login}", settings)
     return code == 204
 
 

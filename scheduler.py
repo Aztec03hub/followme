@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _step(label: str) -> None:
+def step(label: str) -> None:
     logger.info(f"=== {label} ===")
 
 
@@ -64,22 +64,22 @@ def run_cycle(args: argparse.Namespace, settings: dict) -> None:
     star_threshold = args.star_threshold if args.star_threshold is not None else settings["star_threshold"]
     window = args.window_hours if args.window_hours is not None else settings["window_hours"]
 
-    _step(f"fetch -n {count}")
+    step(f"fetch -n {count}")
     sys.argv = ["fetch.py", "-n", str(count)]
     fetch_main()
 
-    _step(f"evaluate{'' if args.evaluate_limit is None else f' -l {args.evaluate_limit}'}")
+    step(f"evaluate{'' if args.evaluate_limit is None else f' -l {args.evaluate_limit}'}")
     sys.argv = ["evaluate.py"] + (["-l", str(args.evaluate_limit)] if args.evaluate_limit is not None else [])
     evaluate_main()
 
-    _step(f"subscribe -s {subscribe_threshold} -w {window}")
+    step(f"subscribe -s {subscribe_threshold} -w {window}")
     sub_argv = ["subscribe.py", "-s", str(subscribe_threshold), "-w", str(window)]
     if args.dry_run:
         sub_argv.append("--dry-run")
     sys.argv = sub_argv
     subscribe_main()
 
-    _step(f"star -s {star_threshold} -w {window}")
+    step(f"star -s {star_threshold} -w {window}")
     star_argv = ["star.py", "-s", str(star_threshold), "-w", str(window)]
     if args.dry_run:
         star_argv.append("--dry-run")

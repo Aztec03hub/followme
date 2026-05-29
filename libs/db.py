@@ -96,7 +96,7 @@ def save_evaluation(
     conn.commit()
 
 
-def _window_cutoff_iso(hours: int) -> str:
+def window_cutoff_iso(hours: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
 
 
@@ -107,7 +107,7 @@ def unfollowed_above(
 ) -> list[sqlite3.Row]:
     """Distinct profiles with at least one repo updated in the window where idea+skill > min_score
     and which we have not followed yet. Returns one representative row per profile."""
-    cutoff = _window_cutoff_iso(window_hours)
+    cutoff = window_cutoff_iso(window_hours)
     return list(
         conn.execute(
             """
@@ -129,7 +129,7 @@ def unstarred_above(
     min_score: float,
     window_hours: int,
 ) -> list[sqlite3.Row]:
-    cutoff = _window_cutoff_iso(window_hours)
+    cutoff = window_cutoff_iso(window_hours)
     return list(
         conn.execute(
             """

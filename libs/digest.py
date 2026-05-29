@@ -39,7 +39,7 @@ def clone(clone_url: str, target: Path, depth: int, token: str) -> tuple[bool, s
     return True, ""
 
 
-def _iter_files(root: Path, extensions: list[str], max_bytes: int):
+def iter_files(root: Path, extensions: list[str], max_bytes: int):
     ext_set = {e.lower() for e in extensions}
     for path in sorted(root.rglob("*")):
         if not path.is_file():
@@ -59,7 +59,7 @@ def _iter_files(root: Path, extensions: list[str], max_bytes: int):
 
 def build(repo_dir: Path, settings: dict[str, Any]) -> str:
     """Return a single string digest: file tree slice + snippets."""
-    files = list(_iter_files(repo_dir, settings["extensions"], settings["max_file_bytes"]))[: settings["max_files"]]
+    files = list(iter_files(repo_dir, settings["extensions"], settings["max_file_bytes"]))[: settings["max_files"]]
     if not files:
         return ""
 

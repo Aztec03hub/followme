@@ -66,29 +66,29 @@ def evaluate(settings: dict[str, Any], full_name: str, digest: str) -> dict[str,
 
     parsed = json.loads(raw)
     text = str(parsed.get("response", "")).strip()
-    return _parse_json_blob(text)
+    return parse_json_blob(text)
 
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
-def _parse_json_blob(text: str) -> dict[str, Any]:
-    match = _JSON_OBJECT_RE.search(text)
+def parse_json_blob(text: str) -> dict[str, Any]:
+    match = JSON_OBJECT_RE.search(text)
     if not match:
         raise RuntimeError(f"Ollama did not return JSON: {text[:200]!r}")
     data = json.loads(match.group(0))
-    idea = _clamp(_safe_float(data.get("idea"), 0.0), 1.0, 10.0)
-    skill = _clamp(_safe_float(data.get("skill"), 0.0), 1.0, 10.0)
+    idea = clamp(safe_float(data.get("idea"), 0.0), 1.0, 10.0)
+    skill = clamp(safe_float(data.get("skill"), 0.0), 1.0, 10.0)
     description = str(data.get("description", "")).strip()
     return {"idea": idea, "skill": skill, "description": description}
 
 
-def _safe_float(value: Any, default: float) -> float:
+def safe_float(value: Any, default: float) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
 
-def _clamp(value: float, lo: float, hi: float) -> float:
+def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
