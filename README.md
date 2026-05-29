@@ -7,16 +7,16 @@ database server, no extra services.
 
 ## Pipeline
 
-Four independent steps, each runnable on its own, plus a scheduler that
-chains them together.
+Four independent step scripts live in `scripts/`, each runnable on its
+own. `main.py` at the project root chains them together.
 
-| Script          | What it does                                                                 |
-| --------------- | ---------------------------------------------------------------------------- |
-| `fetch.py`      | Pull `N` new repositories from GitHub Search and insert them into the DB.    |
-| `evaluate.py`   | Clone unrated repos, ask Ollama for `idea`, `skill`, `description`, store.   |
-| `subscribe.py`  | Follow profiles whose repos updated in the last `W` hours scored above `X`.  |
-| `star.py`       | Star repos updated in the last `W` hours that scored above `Y`.              |
-| `scheduler.py`  | Runs `fetch -> evaluate -> subscribe -> star` once, or in an infinite loop.  |
+| Script                  | What it does                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `scripts/fetch.py`      | Pull `N` new repositories from GitHub Search and insert them into the DB.    |
+| `scripts/evaluate.py`   | Clone unrated repos, ask Ollama for `idea`, `skill`, `description`, store.   |
+| `scripts/subscribe.py`  | Follow profiles whose repos updated in the last `W` hours scored above `X`.  |
+| `scripts/star.py`       | Star repos updated in the last `W` hours that scored above `Y`.              |
+| `main.py`               | Runs `fetch -> evaluate -> subscribe -> star` once, or in an infinite loop.  |
 
 ## Schema
 
@@ -65,37 +65,37 @@ Every script reads `.env` from the project root. Flags override env values.
 ### Fetch new repositories
 
 ```bash
-python3 fetch.py -n 5
+python3 scripts/fetch.py -n 5
 ```
 
 ### Evaluate everything not yet rated
 
 ```bash
-python3 evaluate.py            # rate all pending
-python3 evaluate.py -l 10      # rate up to 10
+python3 scripts/evaluate.py            # rate all pending
+python3 scripts/evaluate.py -l 10      # rate up to 10
 ```
 
 ### Follow high-scoring authors (recent window)
 
 ```bash
-python3 subscribe.py -s 14 -w 24
-python3 subscribe.py --dry-run
+python3 scripts/subscribe.py -s 14 -w 24
+python3 scripts/subscribe.py --dry-run
 ```
 
 ### Star high-scoring repos (recent window)
 
 ```bash
-python3 star.py -s 16 -w 24
-python3 star.py --dry-run
+python3 scripts/star.py -s 16 -w 24
+python3 scripts/star.py --dry-run
 ```
 
 ### Run the full cycle
 
 ```bash
-python3 scheduler.py                            # one cycle, defaults from .env
-python3 scheduler.py -n 5 --subscribe-threshold 14 --star-threshold 16 -w 24
-python3 scheduler.py --dry-run                  # safe rehearsal
-python3 scheduler.py -i --sleep 600             # loop forever
+python3 main.py                            # one cycle, defaults from .env
+python3 main.py -n 5 --subscribe-threshold 14 --star-threshold 16 -w 24
+python3 main.py --dry-run                  # safe rehearsal
+python3 main.py -i --sleep 600             # loop forever
 ```
 
 The default cycle is exactly what the project was built around:
