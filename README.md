@@ -1,184 +1,121 @@
 # followme
 
-`followme` is a small CLI that scans repositories on GitHub and uses a local **Ollama** model to grade authors.
+A small set of standalone CLI scripts that discover GitHub repositories,
+grade them with a local **Ollama** model, then follow promising authors
+and star strong projects. State lives in a single SQLite file. No
+database server, no extra services.
 
-This repository exists to help you discover experienced Python developers, learn from how they write code, and grow your own skills by following their work.
+## Pipeline
 
-## Features
+Four independent steps, each runnable on its own, plus a scheduler that
+chains them together.
 
-- Scans recent Python repositories from GitHub Search API.
-- Supports single-repository mode via `username__reponame`.
-- Clones repositories with `--depth 1`.
-- Collects a compact repository digest and requests:
-  - numeric grade (`1.0 .. 10.0`)
-  - short comment
-  - detailed style profile
-- Appends style profiles to `data/code_style/{username}__{reponame}.md`.
-- Writes every result to CSV (`data/results.csv` by default).
-- If `grade > FOLLOW_STAR_GRADE`, stars the repository.
-- If `grade > FOLLOW_GRADE`, follows the repository owner.
+| Script          | What it does                                                                 |
+| --------------- | ---------------------------------------------------------------------------- |
+| `fetch.py`      | Pull `N` new repositories from GitHub Search and insert them into the DB.    |
+| `evaluate.py`   | Clone unrated repos, ask Ollama for `idea`, `skill`, `description`, store.   |
+| `subscribe.py`  | Follow profiles whose repos updated in the last `W` hours scored above `X`.  |
+| `star.py`       | Star repos updated in the last `W` hours that scored above `Y`.              |
+| `scheduler.py`  | Runs `fetch -> evaluate -> subscribe -> star` once, or in an infinite loop.  |
+
+## Schema
+
+One SQLite table — `entries` — one row per repository:
+
+| Column        | Meaning                                              |
+| ------------- | ---------------------------------------------------- |
+| `repo`        | `owner/name` (primary key)                           |
+| `profile`     | repository owner login                               |
+| `clone_url`   | git URL used for the shallow clone                   |
+| `html_url`    | browser URL                                          |
+| `created_at`  | when the row was inserted (UTC ISO-8601)             |
+| `updated_at`  | last time we touched the row (UTC ISO-8601)          |
+| `followed`    | 1 if we follow the `profile`, mirrored across rows   |
+| `starred`     | 1 if we star the `repo`                              |
+| `idea`        | 1.0–10.0 novelty grade from Ollama                   |
+| `skill`       | 1.0–10.0 engineering grade from Ollama               |
+| `description` | one-sentence English summary                         |
+
+Scoring uses `idea + skill` so thresholds live in `[2.0, 20.0]`.
 
 ## Requirements
 
-- Python 3.11+
-- Git CLI installed
+- Python 3.11+ (standard library only)
+- Git CLI
 - Network access to GitHub
-- Ollama running with an installed model (for example `qwen2.5-coder:7b`)
-- Python package dependencies from `requirements.txt` (`Jinja2` for `templates/PROMT_*.j2`)
+- A running Ollama with the configured model installed
+  (e.g. `ollama pull qwen2.5-coder:7b`)
+- A GitHub personal access token with `user:follow` and `public_repo` scopes
 
-## Quick Install (with scripts/install.py, for beginners)
-
-Run from project root:
-
-```bash
-python3 scripts/install.py
-```
-
-What `scripts/install.py` does:
-
-- creates `.venv` automatically if missing
-- installs dependencies from `requirements.txt`
-- creates or updates `.env`
-- asks for `OLLAMA_URL` and `OLLAMA_MODEL`
-- normalizes Ollama URL (for example `10.16.69.251` -> `http://10.16.69.251:11434`)
-
-After install, run:
-
-```bash
-python3 followme.py -l 20
-```
-
-## Detailed setup (without scripts/install.py)
-
-### 1) Create and activate virtual environment
+## Setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### 2) Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-`requirements.txt` installs `Jinja2`, which renders `templates/PROMT_MD.j2` and `templates/PROMT_CSV.j2`.
-
-### 3) Create `.env` manually
-
-```bash
 cp env.example .env
+# edit .env: at minimum set GITHUB_TOKEN and OLLAMA_URL / OLLAMA_MODEL
 ```
 
-Set in `.env` at least:
-
-- `GITHUB_TOKEN`
-- `OLLAMA_URL` (for remote host use `http://<ip>:11434`, example `http://10.16.69.251:11434`)
-- `OLLAMA_MODEL` (installed Ollama model, for example `qwen2.5-coder:7b`)
-- `FOLLOW_OUTPUT_LANGUAGE` (language for generated `comment` and `code_style`, default `English`)
-
-Then verify or adjust:
-
-- `FOLLOW_GRADE` (default `7.5`, threshold for following repository owner)
-- `FOLLOW_STAR_GRADE` (default `7.5`, threshold for starring repository)
-- `FOLLOW_SCAN_LIMIT` (default `100`)
-- `FOLLOW_LANGUAGE` (default `Python`)
-- `FOLLOW_OUTPUT_LANGUAGE` (default `English`)
-- `MAX_STARS` (default `100`)
-- `FOLLOW_RESULTS_CSV` (default `data/results.csv`)
-- `FOLLOW_ANALYSIS_DIR` (default `data/analysis`, used for optional digest files)
-- `FOLLOW_DRY_RUN` (`true`/`false`)
-- `FOLLOW_INFINITE_SLEEP_SECONDS` (default `600`, used by `-i/--infinite` when `-s/--sleep` is omitted)
-
-### 4) Run scanner
-
-```bash
-python3 followme.py -l 20
-```
+`requirements.txt` exists but is empty — no third-party packages are needed.
 
 ## Usage
 
-Run from inside the `followme` directory.
+Every script reads `.env` from the project root. Flags override env values.
 
-### 1) Batch scan mode
-
-```bash
-python3 followme.py -l 20
-```
-
-Optional flags:
-
-- `-t` / `--threshold 8.0`
-- `--follow-grade 8.0`
-- `--star-grade 8.5`
-- `--dry-run`
-- `-r` / `--repo username__reponame` (single repository mode)
-- `-i` / `--infinite` + optional `-s` / `--sleep <seconds>` (repeat forever: fetch up to `-l/--limit` repos each cycle, sleep, repeat)
-- Default infinite sleep comes from `.env`: `FOLLOW_INFINITE_SLEEP_SECONDS` (default `600`)
-
-Example:
+### Fetch new repositories
 
 ```bash
-python3 followme.py -l 10 --follow-grade 8.2 --star-grade 8.5 --dry-run
+python3 fetch.py -n 5
 ```
 
-Compatibility example: `-t/--threshold` still sets both follow and star thresholds when the newer flags are omitted.
-
-Infinite mode example (100 repos per cycle from `.env` / defaults, sleep 300s):
+### Evaluate everything not yet rated
 
 ```bash
-python3 followme.py -i -s 300
+python3 evaluate.py            # rate all pending
+python3 evaluate.py -l 10      # rate up to 10
 ```
 
-### 2) Single repository mode
-
-Format: `username__reponame`
+### Follow high-scoring authors (recent window)
 
 ```bash
-python3 followme.py -r yumiaura__followme
+python3 subscribe.py -s 14 -w 24
+python3 subscribe.py --dry-run
 ```
 
-Dry run example:
+### Star high-scoring repos (recent window)
 
 ```bash
-python3 followme.py -r yumiaura__followme --dry-run
+python3 star.py -s 16 -w 24
+python3 star.py --dry-run
 ```
 
-### 3) Helper scripts
-
-Preview GitHub users who would be unfollowed because they do not follow you back:
+### Run the full cycle
 
 ```bash
-python3 scripts/unfollow.py --dry-run
+python3 scheduler.py                            # one cycle, defaults from .env
+python3 scheduler.py -n 5 --subscribe-threshold 14 --star-threshold 16 -w 24
+python3 scheduler.py --dry-run                  # safe rehearsal
+python3 scheduler.py -i --sleep 600             # loop forever
 ```
 
-Run the unfollow action:
+The default cycle is exactly what the project was built around:
 
-```bash
-python3 scripts/unfollow.py
-```
+1. **fetch 5 new repos**
+2. **evaluate them**
+3. **follow profiles** updated in the last 24h with `idea + skill > 14`
+4. **star repos**     updated in the last 24h with `idea + skill > 16`
 
-## Output
+## Files written
 
-- CSV report: `data/results.csv`
-- Style profiles: `data/code_style/*.md`
-- Temporary clone workspace: `data/repo` (deleted after each repository)
+- `data/followme.sqlite` — single source of truth
+- `data/repo/` — scratch clone directory, wiped between repos
 
 ## Grade scale
 
-`followme` requests strict grading anchors from Ollama:
+The Ollama prompt asks for strict anchors:
 
-- `1.0` = junior
-- `5.0` = middle
-- `9.0` = senior
+- `1.0` — trivial / junior
+- `5.0` — ordinary / middle
+- `9.0` — strong / senior
 
-Returned grade is clamped to `1.0 .. 10.0`.
-
-## Troubleshooting
-
-- `Bad credentials (401)`:
-  - verify `GITHUB_TOKEN`
-  - ensure token has permissions for follow and starring.
-- `ModuleNotFoundError: No module named 'jinja2'`:
-  - run `pip install -r requirements.txt`
+Both `idea` and `skill` are clamped into `[1.0, 10.0]`.
