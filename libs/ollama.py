@@ -1,119 +1,94 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Ollama HTTP client helpers."""
+"""Minimal Ollama JSON-generation client (stdlib only)."""
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
-import urllib.parse
 import urllib.request
 from typing import Any
 
 
-DEFAULT_OLLAMA_PORT = 11434
-
 logger = logging.getLogger(__name__)
 
 
-def normalize_ollama_url(raw_url: str) -> str:
-    """Normalize Ollama URL, adding scheme and default port when needed."""
-    value = raw_url.strip() or f"http://localhost:{DEFAULT_OLLAMA_PORT}"
-    if "://" not in value:
-        value = f"http://{value}"
-    parsed = urllib.parse.urlparse(value)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"Invalid OLLAMA_URL: {raw_url}")
-    host = parsed.hostname
-    if not host:
-        raise ValueError(f"Invalid OLLAMA_URL: {raw_url}")
-    port = parsed.port or DEFAULT_OLLAMA_PORT
-    return urllib.parse.urlunparse((parsed.scheme, f"{host}:{port}", "", "", "", "")).rstrip("/")
+SYSTEM_PROMPT = (
+    "You are a senior code reviewer. Given a repository digest, return a STRICT JSON object "
+    "with exactly three fields:\n"
+    '  "idea":  float in [1.0, 10.0] grading the novelty and usefulness of the project idea,\n'
+    '  "skill": float in [1.0, 10.0] grading the engineering skill shown in the code,\n'
+    '  "description": one short English sentence summarizing what the repository does.\n'
+    "Grade anchors: 1=trivial/junior, 5=ordinary/middle, 9=strong/senior. "
+    "Return ONLY the JSON object, no prose."
+)
 
 
-def ensure_ollama_available(settings: dict[str, Any]) -> None:
-    """Ensure Ollama is reachable and configured model exists."""
+def ensure_available(settings: dict[str, Any]) -> None:
     url = f"{settings['ollama_url']}/api/tags"
-    request = urllib.request.Request(url, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=settings["request_timeout_seconds"]) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="replace"))
-    except urllib.error.URLError as exc:
+        with urllib.request.urlopen(url, timeout=settings["request_timeout_seconds"]) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except (urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Cannot reach Ollama at {settings['ollama_url']}: {exc}") from exc
+    models = {str(m.get("name", "")).strip() for m in payload.get("models", []) if isinstance(m, dict)}
+    if settings["ollama_model"] not in models:
         raise RuntimeError(
-            f"Cannot reach Ollama at {settings['ollama_url']}: {type(exc).__name__}: {exc}"
-        ) from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Ollama /api/tags returned invalid JSON: {exc}") from exc
-
-    available_models = {
-        str(item.get("name", "")).strip()
-        for item in payload.get("models", [])
-        if isinstance(item, dict)
-    }
-    if settings["ollama_model"] not in available_models:
-        installed = sorted(model for model in available_models if model)
-        raise RuntimeError(
-            f"Model '{settings['ollama_model']}' is not installed in Ollama. "
-            f"Installed: {installed}"
+            f"Model '{settings['ollama_model']}' not installed in Ollama. Installed: {sorted(models)}"
         )
 
 
-def ollama_generate(
-    settings: dict[str, Any],
-    prompt: str,
-    system: str,
-    temperature: float = 0.2,
-    call_tag: str = "generate",
-) -> str:
-    """Call Ollama /api/generate and return response text."""
+def evaluate(settings: dict[str, Any], full_name: str, digest: str) -> dict[str, Any]:
+    """Ask Ollama for {idea, skill, description}; clamp scores into [1, 10]."""
+    user_prompt = f"Repository: {full_name}\nLanguage: {settings['language']}\n\nDigest:\n{digest}\n\nReturn JSON only."
     payload = {
         "model": settings["ollama_model"],
-        "prompt": prompt,
-        "system": system,
+        "system": SYSTEM_PROMPT,
+        "prompt": user_prompt,
         "stream": False,
-        "options": {"temperature": temperature},
+        "format": "json",
+        "options": {"temperature": 0.1},
     }
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         f"{settings['ollama_url']}/api/generate",
-        data=body,
+        data=json.dumps(payload).encode("utf-8"),
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    timeout_seconds = max(180, settings["request_timeout_seconds"])
+    timeout = max(180, settings["request_timeout_seconds"])
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            raw_text = response.read().decode("utf-8", errors="replace")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Ollama HTTPError {exc.code}: {body_text}") from exc
+        raise RuntimeError(f"Ollama HTTP {exc.code}: {exc.read().decode('utf-8', errors='replace')}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Cannot call Ollama: {type(exc).__name__}: {exc}") from exc
+        raise RuntimeError(f"Cannot reach Ollama: {exc}") from exc
 
+    parsed = json.loads(raw)
+    text = str(parsed.get("response", "")).strip()
+    return _parse_json_blob(text)
+
+
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _parse_json_blob(text: str) -> dict[str, Any]:
+    match = _JSON_OBJECT_RE.search(text)
+    if not match:
+        raise RuntimeError(f"Ollama did not return JSON: {text[:200]!r}")
+    data = json.loads(match.group(0))
+    idea = _clamp(_safe_float(data.get("idea"), 0.0), 1.0, 10.0)
+    skill = _clamp(_safe_float(data.get("skill"), 0.0), 1.0, 10.0)
+    description = str(data.get("description", "")).strip()
+    return {"idea": idea, "skill": skill, "description": description}
+
+
+def _safe_float(value: Any, default: float) -> float:
     try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Ollama returned invalid JSON: {exc}: {raw_text[:500]}") from exc
-
-    prompt_tokens = parsed.get("prompt_eval_count")
-    output_tokens = parsed.get("eval_count")
-    if isinstance(prompt_tokens, int) and isinstance(output_tokens, int):
-        logger.info(
-            "ollama token usage "
-            f"[{call_tag}]: prompt_tokens={prompt_tokens} output_tokens={output_tokens} "
-            f"total={prompt_tokens + output_tokens}"
-        )
-    response_text = str(parsed.get("response", "")).strip()
-    if not response_text:
-        raise RuntimeError("Ollama returned an empty response")
-    return response_text
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
-def main() -> None:
-    """Module entrypoint placeholder."""
-    pass
-
-
-if __name__ == "__main__":
-    main()
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
