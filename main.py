@@ -25,7 +25,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("scheduler")
+logger = logging.getLogger("main")
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,10 +54,10 @@ def step(label: str) -> None:
 
 
 def run_cycle(args: argparse.Namespace, settings: dict) -> None:
-    from fetch import main as fetch_main
-    from evaluate import main as evaluate_main
-    from subscribe import main as subscribe_main
-    from star import main as star_main
+    from scripts.fetch import main as fetch_main
+    from scripts.evaluate import main as evaluate_main
+    from scripts.subscribe import main as subscribe_main
+    from scripts.star import main as star_main
 
     count = args.count if args.count is not None else settings["fetch_count"]
     subscribe_threshold = args.subscribe_threshold if args.subscribe_threshold is not None else settings["subscribe_threshold"]
@@ -65,22 +65,22 @@ def run_cycle(args: argparse.Namespace, settings: dict) -> None:
     window = args.window_hours if args.window_hours is not None else settings["window_hours"]
 
     step(f"fetch -n {count}")
-    sys.argv = ["fetch.py", "-n", str(count)]
+    sys.argv = ["scripts/fetch.py", "-n", str(count)]
     fetch_main()
 
     step(f"evaluate{'' if args.evaluate_limit is None else f' -l {args.evaluate_limit}'}")
-    sys.argv = ["evaluate.py"] + (["-l", str(args.evaluate_limit)] if args.evaluate_limit is not None else [])
+    sys.argv = ["scripts/evaluate.py"] + (["-l", str(args.evaluate_limit)] if args.evaluate_limit is not None else [])
     evaluate_main()
 
     step(f"subscribe -s {subscribe_threshold} -w {window}")
-    sub_argv = ["subscribe.py", "-s", str(subscribe_threshold), "-w", str(window)]
+    sub_argv = ["scripts/subscribe.py", "-s", str(subscribe_threshold), "-w", str(window)]
     if args.dry_run:
         sub_argv.append("--dry-run")
     sys.argv = sub_argv
     subscribe_main()
 
     step(f"star -s {star_threshold} -w {window}")
-    star_argv = ["star.py", "-s", str(star_threshold), "-w", str(window)]
+    star_argv = ["scripts/star.py", "-s", str(star_threshold), "-w", str(window)]
     if args.dry_run:
         star_argv.append("--dry-run")
     sys.argv = star_argv

@@ -10,6 +10,11 @@ import sys
 import traceback
 from pathlib import Path
 
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from libs import db, digest, ollama
 from libs.settings import load_settings
 
@@ -30,7 +35,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    settings = load_settings(Path(__file__).resolve().parent)
+    settings = load_settings(PROJECT_ROOT)
     conn = db.connect(settings["db_path"])
 
     pending = db.unevaluated(conn, limit=args.limit)
