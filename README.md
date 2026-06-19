@@ -119,3 +119,31 @@ The Ollama prompt asks for strict anchors:
 - `9.0` — strong / senior
 
 Both `idea` and `skill` are clamped into `[1.0, 10.0]`.
+
+## Fork notes (this fork)
+
+This fork runs against a **local Ollama `qwen2.5-coder:32b`** on an RTX 5090.
+
+### Batched follows (`subscribe.py --limit`)
+
+Upstream's `subscribe.py` follows *every* candidate above the threshold each
+run. Run on a tight loop that becomes a steady trickle of follows — the exact
+signature GitHub's automated-following abuse heuristics watch for. This fork
+adds a `-l/--limit N` flag to cap follows to the top-N highest-scoring
+candidates per run, so following can happen in occasional capped **batches**
+instead of a continuous stream:
+
+```bash
+python3 scripts/subscribe.py -s 14 -w 24 --limit 25
+```
+
+### Recommended cadence — decouple star from follow
+
+Star frequently (low risk); follow in infrequent capped batches:
+
+```cron
+# discovery + star every 2 hours (no follows)
+0 */2 * * *    cd /path/to/followme && python3 scripts/fetch.py -n 5 && python3 scripts/evaluate.py && python3 scripts/star.py -s 16 -w 24
+# batched follow (<=25) twice a day
+30 0,12 * * *  cd /path/to/followme && python3 scripts/subscribe.py -s 14 -w 24 --limit 25
+```

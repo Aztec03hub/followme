@@ -31,6 +31,10 @@ def parse_args() -> argparse.Namespace:
                         help="Minimum idea+skill sum to follow (default: SUBSCRIBE_THRESHOLD)")
     parser.add_argument("-w", "--window-hours", type=int, default=None,
                         help="Only consider repos updated in the last N hours (default: WINDOW_HOURS)")
+    parser.add_argument("-l", "--limit", type=int, default=None,
+                        help="Cap follows this run to the top-N highest-scoring candidates (batch size). "
+                             "Mirrors the upstream creator's 'follow up to ~25 in a batch' pattern to avoid "
+                             "GitHub's automated-following abuse flags.")
     parser.add_argument("--dry-run", action="store_true", help="Log candidates without following")
     return parser.parse_args()
 
@@ -44,8 +48,13 @@ def main() -> int:
 
     conn = db.connect(settings["db_path"])
     candidates = db.unfollowed_above(conn, min_score, window_hours)
+    total = len(candidates)
+    if args.limit is not None and args.limit >= 0:
+        candidates = candidates[: args.limit]  # rows arrive ordered by score DESC, so this keeps the top-N
     logger.info(
-        f"Candidates: {len(candidates)} (min_score={min_score}, window={window_hours}h, dry_run={dry_run})"
+        f"Candidates: {total} (min_score={min_score}, window={window_hours}h, dry_run={dry_run}); "
+        f"acting on {len(candidates)}"
+        + (f" (batch limit {args.limit})" if args.limit is not None else "")
     )
 
     for row in candidates:

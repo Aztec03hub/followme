@@ -9,3 +9,6 @@ data/
 .idea/
 .vscode/
 .claude/
+
+# personal machine-specific cron wrappers (hardcoded paths) — example lives in README
+cron-*.sh
